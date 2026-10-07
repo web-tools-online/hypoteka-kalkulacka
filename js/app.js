@@ -1,4 +1,4 @@
-/* Uživatelské rozhraní kalkulačky: formulář, karty, graf a tabulky. */
+/* Uživatelské rozhraní kalkulačky: formulář, plán mimořádných splátek, graf a tabulky. */
 (function () {
   'use strict';
 
@@ -11,9 +11,8 @@
   const nfCompact = new Intl.NumberFormat('cs-CZ', { notation: 'compact', maximumFractionDigits: 1 });
   const dfLong = new Intl.DateTimeFormat('cs-CZ', { month: 'long', year: 'numeric' });
 
-  const kc = (v) => nf0.format(Math.round(v) || 0);
-  const czk = (v) => kc(v) + '\u00a0Kč';
-  const pct = (v) => nfRate.format(v) + '\u00a0%';
+  const czk = (v) => nf0.format(Math.round(v) || 0) + ' Kč';
+  const pct = (v) => nfRate.format(v) + ' %';
 
   function plural(n, one, few, many) {
     if (n === 1) return one;
@@ -25,9 +24,9 @@
     const y = Math.floor(months / 12);
     const m = months % 12;
     const parts = [];
-    if (y) parts.push(`${y}\u00a0${plural(y, 'rok', 'roky', 'let')}`);
-    if (m) parts.push(`${m}\u00a0${plural(m, 'měsíc', 'měsíce', 'měsíců')}`);
-    return parts.join(' a ') || '0\u00a0měsíců';
+    if (y) parts.push(`${y} ${plural(y, 'rok', 'roky', 'let')}`);
+    if (m) parts.push(`${m} ${plural(m, 'měsíc', 'měsíce', 'měsíců')}`);
+    return parts.join(' a ') || '0 měsíců';
   }
 
   // Datum k-té splátky (k = 1 je první splátka).
@@ -51,7 +50,7 @@
       }
     }
     for (const c of children.flat()) {
-      if (c == null || c === false) continue;
+      if (c == null || c === false || c === '') continue;
       node.append(c instanceof Node ? c : document.createTextNode(String(c)));
     }
     return node;
@@ -63,16 +62,18 @@
   }
 
   const SCENARIOS = [
-    { key: 'none', label: 'Bez předčasné splátky', short: 'Bez předč.', color: '--series-base' },
-    { key: 'payment', label: 'Snížení splátky', short: 'Snížení', color: '--series-1' },
-    { key: 'term', label: 'Zkrácení doby', short: 'Zkrácení', color: '--series-2' },
+    { key: 'none', label: 'Bez mimořádných splátek', color: '--series-base' },
+    { key: 'plan', label: 'Váš plán', color: '--series-1' },
+    { key: 'payment', label: 'Vše na nižší splátku', color: '--series-2', ref: true },
+    { key: 'term', label: 'Vše na kratší dobu', color: '--series-3', ref: true },
   ];
+  const MODE_LABEL = { payment: 'nižší splátka', term: 'kratší doba' };
   const keyEl = (key) => el('span', { class: `key key-${key}`, 'aria-hidden': 'true' });
 
   // ---------- Vstupy ----------
   function parseNum(raw) {
     const s = String(raw == null ? '' : raw)
-      .replace(/[\s\u00a0 ]/g, '')
+      .replace(/[\s  ]/g, '')
       .replace(/kč|%/gi, '')
       .replace(',', '.');
     if (s === '') return null;
@@ -87,7 +88,10 @@
     fix: { min: 1 / 12, max: 50, required: true, msg: 'Zadejte délku fixace v letech (např. 5).' },
     firstFix: { min: 1 / 12, max: 50, required: false, msg: 'Zadejte kladný počet let, nebo nechte prázdné.' },
     nextRate: { min: 0, max: 30, required: false, msg: 'Zadejte sazbu od 0 do 30 %, nebo nechte prázdné.' },
-    prepayment: { min: 0, max: 1e9, required: false, msg: 'Zadejte částku 0 Kč nebo vyšší.' },
+    extraAmount: { min: 0, max: 1e9, required: false, msg: 'Zadejte částku 0 Kč nebo vyšší.' },
+    extraYears: { min: 0, max: 50, required: false, integer: true, msg: 'Zadejte celý počet let, nebo nechte prázdné.' },
+    limitPct: { min: 0, max: 100, required: true, msg: 'Zadejte 0 až 100 %.' },
+    originalPrincipal: { min: 10000, max: 1e9, required: false, msg: 'Zadejte částku alespoň 10 000 Kč, nebo nechte prázdné.' },
   };
 
   // Názvy parametrů v adrese stránky (aby šel výpočet sdílet odkazem).
@@ -98,14 +102,26 @@
     fix: 'fixace',
     firstFix: 'konecFixace',
     nextRate: 'dalsiSazba',
-    prepayment: 'splatka',
+    extraAmount: 'mimoradna',
+    extraYears: 'let',
+    limitPct: 'limit',
+    originalPrincipal: 'puvodni',
   };
+  const OPTIONAL_FIELDS = ['firstFix', 'nextRate', 'extraYears', 'originalPrincipal'];
+  const MODE_URL = { payment: 'splatka', term: 'doba' };
+  const BASE_URL = { original: 'puvodni', balance: 'zustatek' };
 
   const state = {
-    overrides: {}, // {index: {rate?, prepayment?}}
+    rateOverrides: {}, // {indexFixace: sazba}
+    extraOverrides: {}, // {indexVýročí: {amount?, mode?}}
     metric: 'balance',
     last: null,
   };
+
+  const form = $('form');
+  const results = $('results');
+  const planBody = $('plan-table').tBodies[0];
+  const ratesBody = $('rates-editor').tBodies[0];
 
   function formatFieldValue(input, v) {
     if (v == null || Number.isNaN(v)) return input.value;
@@ -120,6 +136,11 @@
     return null;
   }
 
+  function selectedRadio(name) {
+    const checked = document.querySelector(`input[name="${name}"]:checked`);
+    return checked ? checked.value : null;
+  }
+
   function readInput() {
     const errors = {};
     const v = {};
@@ -128,7 +149,7 @@
       v[name] = n;
       if (n === null) {
         if (rule.required) errors[name] = rule.msg;
-      } else if (Number.isNaN(n) || n < rule.min || n > rule.max) {
+      } else if (Number.isNaN(n) || n < rule.min || n > rule.max || (rule.integer && !Number.isInteger(n))) {
         errors[name] = rule.msg;
       }
     }
@@ -153,9 +174,14 @@
         fixMonths,
         rate: v.rate,
         nextRate: v.nextRate,
-        prepayment: v.prepayment || 0,
-        prepayWhen: form.querySelector('input[name="when"]:checked').value,
-        overrides: state.overrides,
+        rateOverrides: state.rateOverrides,
+        extraAmount: v.extraAmount || 0,
+        extraYears: v.extraYears,
+        extraMode: selectedRadio('extraMode'),
+        extraOverrides: state.extraOverrides,
+        limitPct: v.limitPct,
+        limitBase: $('limitBase').value,
+        originalPrincipal: v.originalPrincipal,
       },
     };
   }
@@ -175,118 +201,163 @@
     }
   }
 
-  // ---------- Editor fixačních období ----------
-  function renderEditor(periods, start) {
-    const tbody = $('periods-editor').tBodies[0];
-    tbody.replaceChildren(
-      ...periods.map((p) => {
-        const ov = state.overrides[p.index] || {};
-        const rateVal = ov.rate != null ? ov.rate : p.defaultRate;
-        const rateInput = el('input', {
-          type: 'text',
-          inputmode: 'decimal',
-          value: nfDec.format(rateVal),
-          'data-index': p.index,
-          'data-field': 'rate',
-          'aria-label': `Sazba ${p.index + 1}. fixace v procentech`,
-          class: ov.rate != null ? 'is-custom' : null,
-        });
-        let prepayCell;
-        if (p.isLast) {
-          prepayCell = el('td', { class: 'na' }, 'konec úvěru');
-        } else {
-          const prepVal = ov.prepayment != null ? ov.prepayment : p.defaultPrepayment;
-          prepayCell = el(
-            'td',
-            null,
-            el('div', { class: 'input-unit' },
-              el('input', {
-                type: 'text',
-                inputmode: 'numeric',
-                value: nf0.format(prepVal),
-                'data-index': p.index,
-                'data-field': 'prepayment',
-                'data-format': 'money',
-                'aria-label': `Předčasná splátka na konci ${p.index + 1}. fixace v Kč`,
-                class: ov.prepayment != null ? 'is-custom' : null,
-              }),
-              el('span', null, 'Kč'),
-            ),
-          );
-        }
-        return el(
-          'tr',
-          null,
+  // ---------- Editor sazeb ----------
+  function renderRatesEditor(periods, start) {
+    ratesBody.replaceChildren(
+      ...periods.map((p) =>
+        el('tr', null,
           el('td', null, `${p.index + 1}. fixace`,
             el('span', { class: 'period-dates' }, `${fmtMonth(start, p.startMonth + 1)} – ${fmtMonth(start, p.endMonth)}`)),
-          el('td', null, rateInput),
-          prepayCell,
+          el('td', null,
+            el('input', {
+              type: 'text',
+              inputmode: 'decimal',
+              value: nfDec.format(p.rate),
+              'data-index': p.index,
+              'aria-label': `Sazba ${p.index + 1}. fixace v procentech`,
+              class: state.rateOverrides[p.index] != null ? 'is-custom' : null,
+            }))),
+      ),
+    );
+  }
+
+  // ---------- Plán mimořádných splátek ----------
+  function renderPlanStructure(extras, start) {
+    planBody.replaceChildren(
+      ...extras.map((e) => {
+        const ov = state.extraOverrides[e.index] || {};
+        const amountInput = el('input', {
+          type: 'text',
+          inputmode: 'numeric',
+          value: nf0.format(e.amount),
+          'data-index': e.index,
+          'data-format': 'money',
+          'aria-label': `Mimořádná splátka k ${e.index + 1}. výročí v Kč`,
+          class: ov.amount != null ? 'is-custom' : null,
+        });
+        const modeName = `mode-${e.index}`;
+        const modeRadio = (value, text) =>
+          el('label', null,
+            el('input', { type: 'radio', name: modeName, value, checked: e.mode === value, 'data-index': e.index }),
+            el('span', null, text));
+        return el(
+          'tr',
+          { 'data-index': e.index },
+          el('th', { scope: 'row' }, `${e.index + 1}. výročí`,
+            el('span', { class: 'period-dates' }, fmtMonth(start, e.month)),
+            e.isFixEnd ? el('span', { class: 'badge' }, 'konec fixace') : null),
+          el('td', { 'data-cell': 'limit' }),
+          el('td', null, el('div', { class: 'input-unit' }, amountInput, el('span', null, 'Kč'))),
+          el('td', null,
+            el('div', {
+              class: `segmented segmented-mini${ov.mode ? ' is-custom' : ''}`,
+              role: 'radiogroup',
+              'aria-label': `Použití ${e.index + 1}. mimořádné splátky`,
+            }, modeRadio('payment', 'nižší splátku'), modeRadio('term', 'kratší dobu'))),
+          el('td', { 'data-cell': 'applied' }),
+          el('td', { 'data-cell': 'payment' }),
+          el('td', { 'data-cell': 'end' }),
         );
       }),
     );
   }
 
-  function editorDisplayValue(input) {
+  function setCell(td, text, note, cls) {
+    td.className = cls || '';
+    td.replaceChildren(text, note ? el('span', { class: 'cell-note' }, note) : '');
+  }
+
+  function updatePlanResults(res, start) {
+    const byIndex = new Map(res.plan.extras.map((x) => [x.index, x]));
+    for (const tr of planBody.rows) {
+      const i = +tr.dataset.index;
+      const x = byIndex.get(i);
+      const cell = (name) => tr.querySelector(`[data-cell="${name}"]`);
+      const done = !x || x.balanceBefore <= 0;
+      tr.classList.toggle('is-off', done);
+      if (done) {
+        setCell(cell('limit'), '—', null, 'muted');
+        setCell(cell('applied'), 'úvěr splacen', null, 'muted');
+        setCell(cell('payment'), '—', null, 'muted');
+        setCell(cell('end'), '—', null, 'muted');
+        continue;
+      }
+      if (x.limit === Infinity) setCell(cell('limit'), 'bez limitu', null, 'muted');
+      else setCell(cell('limit'), czk(x.limit));
+
+      if (x.applied <= 0) {
+        if (x.capped) setCell(cell('applied'), czk(0), 'sníženo na limit', 'warn');
+        else setCell(cell('applied'), '—', null, 'muted');
+        setCell(cell('payment'), '—', null, 'muted');
+        setCell(cell('end'), '—', null, 'muted');
+        continue;
+      }
+      const note = x.paidOff ? 'doplaceno' : x.capped ? 'sníženo na limit' : null;
+      setCell(cell('applied'), czk(x.applied), note, x.capped ? 'warn' : null);
+      setCell(cell('payment'), x.paidOff ? '—' : czk(x.paymentAfter), null, x.paidOff ? 'muted' : null);
+      setCell(cell('end'), fmtMonth(start, x.endMonthAfter));
+    }
+  }
+
+  function planDisplayAmount(input) {
     const i = +input.dataset.index;
-    const field = input.dataset.field;
-    const ov = state.overrides[i] || {};
-    const p = state.last && state.last.res.periods[i];
-    if (!p) return input.value;
-    const val = ov[field] != null ? ov[field] : field === 'rate' ? p.defaultRate : p.defaultPrepayment;
-    return field === 'rate' ? nfDec.format(val) : nf0.format(val);
+    const e = state.last && state.last.res.extras[i];
+    return e ? nf0.format(e.amount) : input.value;
   }
 
   // ---------- Výsledky ----------
-  function firstPrepayIndex(sim) {
-    return sim.periods.findIndex((p) => p.prepayment > 0);
+  const appliedExtras = (sim) => sim.extras.filter((x) => x.applied > 0);
+
+  // Poslední mimořádná splátka, po které úvěr ještě běží (kvůli „splátce poté“).
+  function lastRunningExtra(sim) {
+    const list = appliedExtras(sim).filter((x) => !x.paidOff);
+    return list.length ? list[list.length - 1] : null;
   }
 
-  function renderVerdict(res) {
-    const { none, payment, term } = res;
+  function renderVerdict(res, start) {
+    const { none, plan, payment, term } = res;
     const box = $('verdict');
-    if (payment.totalPrepaid <= 0) {
+    if (plan.totalPrepaid <= 0) {
       box.replaceChildren(
-        rich(['Zadejte ', { b: 'částku předčasné splátky' }, ' – bez ní vycházejí všechny varianty stejně.']),
+        rich(['Zadejte ', { b: 'částku mimořádné splátky' }, ' – bez ní se splácení nijak nezmění.']),
       );
       return;
     }
-    const saveP = none.totalInterest - payment.totalInterest;
-    const saveT = none.totalInterest - term.totalInterest;
-    const shorter = none.months - term.months;
-    const diff = saveT - saveP;
+    const save = none.totalInterest - plan.totalInterest;
+    const shorter = none.months - plan.months;
+    const count = appliedExtras(plan).length;
 
     const first = [
-      'Zkrácením doby ušetříte na úrocích ',
-      { b: czk(saveT) },
-      shorter > 0 ? ' a hypotéku splatíte o ' : '',
-      shorter > 0 ? { b: duration(shorter) } : '',
-      shorter > 0 ? ' dřív' : '',
-      '. Snížením splátky ušetříte ',
-      { b: czk(saveP) },
-      payment.months < none.months
-        ? ` (i tady úvěr skončí o ${duration(none.months - payment.months)} dřív, protože předčasná splátka doplatí celý zbytek dluhu).`
-        : '.',
+      'S vaším plánem mimořádně splatíte celkem ',
+      { b: czk(plan.totalPrepaid) },
+      ` (${count} ${plural(count, 'splátka', 'splátky', 'splátek')}) a na úrocích ušetříte `,
+      { b: czk(save) },
+    ];
+    if (shorter > 0) first.push('. Hypotéku splatíte o ', { b: duration(shorter) }, ' dřív');
+    first.push('.');
+    const lastRun = lastRunningExtra(plan);
+    if (lastRun && plan.firstPayment - lastRun.paymentAfter >= 1) {
+      first.push(' Měsíční splátka klesne z ', { b: czk(plan.firstPayment) }, ' až na ', { b: czk(lastRun.paymentAfter) }, '.');
+    }
+
+    const second = [
+      'Pro srovnání se stejnými částkami: kdyby všechny šly na kratší dobu, ušetří se ',
+      { b: czk(none.totalInterest - term.totalInterest) },
+      ` a úvěr skončí ${fmtMonth(start, term.months)}; kdyby všechny šly na nižší splátku, ušetří se `,
+      { b: czk(none.totalInterest - payment.totalInterest) },
+      ` a úvěr skončí ${fmtMonth(start, payment.months)}.`,
     ];
 
-    const second = [];
-    if (Math.abs(diff) >= 1) {
-      second.push(
-        diff > 0 ? 'Zkrácení doby tedy vychází na úrocích o ' : 'Snížení splátky tu vychází na úrocích o ',
-        { b: czk(Math.abs(diff)) },
-        ' lépe. ',
+    const parts = [rich(first), rich(second)];
+    if (plan.cappedCount > 0) {
+      const n = plan.cappedCount;
+      parts.push(
+        rich([
+          `${n} ${plural(n, 'splátka přesahuje', 'splátky přesahují', 'splátek přesahuje')} bezplatný limit, kalkulačka ${n === 1 ? 'ji' : 'je'} proto snížila na limit.`,
+        ]),
       );
     }
-    const j = firstPrepayIndex(payment);
-    const after = payment.periods[j + 1];
-    const afterNone = none.periods[j + 1];
-    if (after && afterNone) {
-      second.push(
-        'Snížení splátky zase uleví rozpočtu: po první předčasné splátce budete platit o ',
-        { b: czk(afterNone.payment - after.payment) },
-        ' měsíčně méně.',
-      );
-    }
-    box.replaceChildren(rich(first), second.length ? rich(second) : '');
+    box.replaceChildren(...parts);
   }
 
   function stat(label, value, notes) {
@@ -307,96 +378,85 @@
       { class: 'panel card' },
       el('div', { class: 'card-head' }, keyEl(key), el('h3', null, title)),
       el('p', { class: 'card-sub' }, sub),
-      stats,
+      el('div', { class: 'card-stats' }, stats),
     );
   }
 
   function renderCards(res, start) {
-    const { none, payment, term } = res;
-    const saveP = none.totalInterest - payment.totalInterest;
-    const saveT = none.totalInterest - term.totalInterest;
-    const shorter = none.months - term.months;
-    const hasPrepay = payment.totalPrepaid > 0;
-
-    const j = firstPrepayIndex(payment);
-    const after = hasPrepay ? payment.periods[j + 1] : null;
-    const afterNone = hasPrepay ? none.periods[j + 1] : null;
-    const paymentChanges = Math.abs(none.lastPayment - none.firstPayment) >= 1;
+    const { none, plan } = res;
+    const save = none.totalInterest - plan.totalInterest;
+    const shorter = none.months - plan.months;
+    const hasExtra = plan.totalPrepaid > 0;
+    const count = appliedExtras(plan).length;
+    const lastRun = lastRunningExtra(plan);
+    const drop = lastRun ? plan.firstPayment - lastRun.paymentAfter : 0;
 
     $('cards').replaceChildren(
-      card('none', 'Bez předčasné splátky', 'srovnávací varianta', [
-        stat('Měsíční splátka', czk(none.firstPayment), [
-          paymentChanges ? `v poslední fixaci ${czk(none.lastPayment)}` : null,
-        ]),
+      card('none', 'Bez mimořádných splátek', 'srovnávací varianta', [
+        stat('Měsíční splátka', czk(none.firstPayment)),
         stat('Zaplacené úroky', czk(none.totalInterest), [`celkem zaplatíte ${czk(none.totalPaid)}`]),
         stat('Doba splácení', duration(none.months), [`poslední splátka ${fmtMonthLong(start, none.months)}`]),
       ]),
-      card('payment', 'Snížení splátky', payment.months < none.months ? 'předčasná splátka doplatí celý úvěr' : 'doba splácení zůstává stejná', [
-        after && afterNone
-          ? stat('Splátka po 1. předčasné splátce', czk(after.payment), [
-              { cls: 'good', text: `o ${czk(afterNone.payment - after.payment)} měsíčně méně` },
-              payment.periods.length > j + 2 ? `v poslední fixaci ${czk(payment.lastPayment)}` : null,
-            ])
-          : stat('Měsíční splátka', czk(payment.firstPayment)),
-        stat('Zaplacené úroky', czk(payment.totalInterest), [
-          hasPrepay ? { cls: 'good', text: `úspora ${czk(saveP)}` } : null,
-        ]),
-        stat('Předčasně splaceno', czk(payment.totalPrepaid), [`poslední splátka ${fmtMonthLong(start, payment.months)}`]),
-      ]),
-      card('term', 'Zkrácení doby', 'měsíční splátka zůstává stejná', [
-        stat('Doba splácení', duration(term.months), [
-          shorter > 0 ? { cls: 'good', text: `o ${duration(shorter)} kratší` } : null,
-          `poslední splátka ${fmtMonthLong(start, term.months)}`,
-        ]),
-        stat('Zaplacené úroky', czk(term.totalInterest), [
-          hasPrepay ? { cls: 'good', text: `úspora ${czk(saveT)}` } : null,
-        ]),
-        stat('Předčasně splaceno', czk(term.totalPrepaid), [
-          term.totalPrepaid < payment.totalPrepaid - 0.5 ? 'méně než u snížení splátky – úvěr skončí dřív' : null,
-        ]),
-      ]),
+      card(
+        'plan',
+        'Váš plán',
+        hasExtra
+          ? `${count} ${plural(count, 'mimořádná splátka', 'mimořádné splátky', 'mimořádných splátek')}, celkem ${czk(plan.totalPrepaid)}`
+          : 'zatím bez mimořádných splátek',
+        [
+          stat('Ušetřené úroky', czk(save), [
+            hasExtra && none.totalInterest > 0
+              ? { cls: 'good', text: `o ${nfDec.format(Math.round((save / none.totalInterest) * 1000) / 10)} % méně na úrocích` }
+              : null,
+            `zaplacené úroky ${czk(plan.totalInterest)}`,
+          ]),
+          stat('Doba splácení', duration(plan.months), [
+            shorter > 0 ? { cls: 'good', text: `o ${duration(shorter)} kratší` } : 'beze změny',
+            `poslední splátka ${fmtMonthLong(start, plan.months)}`,
+          ]),
+          stat('Měsíční splátka po poslední mimořádné', czk(lastRun ? lastRun.paymentAfter : plan.firstPayment), [
+            drop >= 1 ? { cls: 'good', text: `o ${czk(drop)} méně než na začátku` } : null,
+            `na začátku ${czk(plan.firstPayment)}`,
+          ]),
+        ],
+      ),
     );
   }
 
-  function scenarioHeaderCells(extraClassFirst, short) {
-    return SCENARIOS.map((s, i) =>
-      el('th', { scope: 'col', class: i === 0 ? extraClassFirst : null, title: s.label },
-        el('span', { class: 'th-key' }, keyEl(s.key), short ? s.short : s.label)),
+  function scenarioHeaderCells() {
+    return SCENARIOS.map((s) =>
+      el('th', { scope: 'col' }, el('span', { class: 'th-key' }, keyEl(s.key), s.label)),
     );
   }
 
   function renderSummary(res, start) {
     const sims = SCENARIOS.map((s) => res[s.key]);
     const none = res.none;
-    const j = firstPrepayIndex(res.payment);
+    const dash = '—';
 
     const rows = [
       ['Měsíční splátka na začátku', (s) => czk(s.firstPayment)],
-      [
-        'Měsíční splátka po 1. předčasné splátce',
-        (s) => {
-          const p = j >= 0 ? s.periods[j + 1] : null;
-          return p ? czk(p.payment) : '—';
-        },
-      ],
-      ['Měsíční splátka v poslední fixaci', (s) => czk(s.lastPayment)],
+      ['Měsíční splátka po 1. mimořádné splátce', (s) => {
+        const x = appliedExtras(s)[0];
+        if (!x) return dash;
+        return x.paidOff ? 'úvěr doplacen' : czk(x.paymentAfter);
+      }],
+      ['Měsíční splátka po poslední mimořádné splátce', (s) => {
+        const x = lastRunningExtra(s);
+        return x ? czk(x.paymentAfter) : dash;
+      }],
       ['Doba splácení', (s) => duration(s.months)],
       ['Poslední splátka', (s) => fmtMonth(start, s.months)],
-      ['Předčasně splaceno celkem', (s) => czk(s.totalPrepaid)],
+      ['Počet mimořádných splátek', (s) => (s === none ? dash : String(appliedExtras(s).length))],
+      ['Mimořádně splaceno celkem', (s) => (s === none ? dash : czk(s.totalPrepaid))],
       ['Zaplacené úroky', (s) => czk(s.totalInterest)],
       ['Celkem zaplaceno bance', (s) => czk(s.totalPaid)],
+      ['Úspora na úrocích', (s) => (s === none ? dash : { text: czk(none.totalInterest - s.totalInterest), cls: 'good' })],
       [
-        'Úspora na úrocích',
-        (s) => (s === none ? '—' : { text: czk(none.totalInterest - s.totalInterest), cls: 'good' }),
+        'Úspora na každých 100 000 Kč mimořádných splátek',
+        (s) => (s === none || s.totalPrepaid <= 0 ? dash : czk(((none.totalInterest - s.totalInterest) / s.totalPrepaid) * 100000)),
       ],
-      [
-        'Úspora na každých 100 000 Kč předčasné splátky',
-        (s) =>
-          s === none || s.totalPrepaid <= 0
-            ? '—'
-            : czk(((none.totalInterest - s.totalInterest) / s.totalPrepaid) * 100000),
-      ],
-      ['Zkrácení doby splácení', (s) => (s === none || s.months >= none.months ? '—' : duration(none.months - s.months))],
+      ['Zkrácení doby splácení', (s) => (s === none || s.months >= none.months ? dash : duration(none.months - s.months))],
     ];
 
     $('summary-table').replaceChildren(
@@ -409,7 +469,7 @@
             sims.map((s) => {
               const v = fn(s);
               return typeof v === 'string'
-                ? el('td', { class: v === '—' ? 'muted' : null }, v)
+                ? el('td', { class: v === dash ? 'muted' : null }, v)
                 : el('td', { class: v.cls }, v.text);
             })),
         ),
@@ -417,92 +477,44 @@
     );
   }
 
-  function renderPeriodsTable(res, start) {
-    const sims = SCENARIOS.map((s) => res[s.key]);
-    const head = el(
-      'thead',
-      null,
-      el('tr', null,
-        el('th', { scope: 'col', rowspan: 2 }, 'Fixace'),
-        el('th', { scope: 'col', rowspan: 2 }, 'Sazba'),
-        el('th', { scope: 'col', rowspan: 2 }, 'Předčasná splátka', el('br'), 'na konci (Kč)'),
-        el('th', { scope: 'colgroup', colspan: 3, class: 'group-start' }, 'Měsíční splátka (Kč)'),
-        el('th', { scope: 'colgroup', colspan: 3, class: 'group-start' }, 'Zůstatek na konci fixace (Kč)'),
-      ),
-      el('tr', null, scenarioHeaderCells('group-start', true), scenarioHeaderCells('group-start', true)),
-    );
-
-    const body = el(
-      'tbody',
-      null,
-      res.periods.map((p) => {
-        const pays = sims.map((s, i) => {
-          const pr = s.periods[p.index];
-          const cls = i === 0 ? 'group-start' : null;
-          return pr ? el('td', { class: cls }, kc(pr.payment)) : el('td', { class: `muted ${cls || ''}` }, '—');
-        });
-        const bals = sims.map((s, i) => {
-          const pr = s.periods[p.index];
-          const cls = i === 0 ? 'group-start' : '';
-          if (!pr) return el('td', { class: `muted ${cls}` }, 'splaceno');
-          if (pr.paidOff) return el('td', { class: `good ${cls}` }, ['splaceno', el('span', { class: 'period-dates' }, fmtMonth(start, pr.endMonth))]);
-          return el('td', { class: cls || null }, kc(pr.endBalance));
-        });
-        return el(
-          'tr',
-          null,
-          el('th', { scope: 'row' }, `${p.index + 1}. fixace`,
-            el('span', { class: 'muted period-dates' }, `${fmtMonth(start, p.startMonth + 1)} – ${fmtMonth(start, p.endMonth)}`)),
-          el('td', null, pct(p.rate)),
-          el('td', { class: p.isLast || !p.prepayment ? 'muted' : null }, p.isLast ? '—' : kc(p.prepayment)),
-          pays,
-          bals,
-        );
-      }),
-    );
-    $('periods-table').replaceChildren(head, body);
-  }
-
-  function selectedRadio(name) {
-    const checked = document.querySelector(`input[name="${name}"]:checked`);
-    return checked ? checked.value : null;
-  }
-
   function renderSchedule(res, start) {
     const sim = res[selectedRadio('scenario')];
     const byYear = selectedRadio('granularity') === 'year';
-    const table = $('schedule-table');
+    const modeAt = new Map(appliedExtras(sim).map((x) => [x.month, x.mode]));
 
     const headCells = byYear
-      ? ['Rok', 'Období', 'Sazba', 'Splátky', 'z toho úrok', 'z toho jistina', 'Předčasná splátka', 'Zůstatek']
-      : ['Splátka č.', 'Měsíc', 'Sazba', 'Splátka', 'z toho úrok', 'z toho jistina', 'Předčasná splátka', 'Zůstatek'];
+      ? ['Rok', 'Období', 'Sazba', 'Splátky', 'z toho úrok', 'z toho jistina', 'Mimořádná splátka', 'Zůstatek']
+      : ['Splátka č.', 'Měsíc', 'Sazba', 'Splátka', 'z toho úrok', 'z toho jistina', 'Mimořádná splátka', 'Zůstatek'];
 
     const rows = byYear
       ? aggregateByYear(sim.rows).map((y) => [
           `${y.year}.`,
           `${fmtMonth(start, y.fromMonth)} – ${fmtMonth(start, y.toMonth)}`,
           y,
+          modeAt.get(y.toMonth),
         ])
-      : sim.rows.map((r) => [`${r.month}.`, fmtMonth(start, r.month), r]);
+      : sim.rows.map((r) => [`${r.month}.`, fmtMonth(start, r.month), r, modeAt.get(r.month)]);
 
     const sum = (k) => sim.rows.reduce((s, r) => s + r[k], 0);
 
-    table.replaceChildren(
+    $('schedule-table').replaceChildren(
       el('thead', null, el('tr', null, headCells.map((h) => el('th', { scope: 'col' }, h)))),
       el(
         'tbody',
         null,
-        rows.map(([a, b, r]) =>
+        rows.map(([a, b, r, mode]) =>
           el(
             'tr',
-            { class: r.prepayment > 0 ? 'prepay-row' : null },
+            { class: !byYear && r.prepayment > 0 ? 'prepay-row' : null },
             el('th', { scope: 'row' }, a),
             el('td', null, b),
             el('td', null, pct(r.rate)),
             el('td', null, czk(r.payment)),
             el('td', null, czk(r.interest)),
             el('td', null, czk(r.principal)),
-            el('td', { class: r.prepayment > 0 ? null : 'muted' }, r.prepayment > 0 ? czk(r.prepayment) : '—'),
+            r.prepayment > 0
+              ? el('td', null, czk(r.prepayment), mode ? el('span', { class: 'cell-note' }, MODE_LABEL[mode]) : null)
+              : el('td', { class: 'muted' }, '—'),
             el('td', null, czk(r.balance)),
           ),
         ),
@@ -531,16 +543,27 @@
     const { res, start } = state.last;
     const key = selectedRadio('scenario');
     const sim = res[key];
+    const modeAt = new Map(appliedExtras(sim).map((x) => [x.month, x.mode]));
     const num = (v) => (Math.round(v * 100) / 100).toFixed(2).replace('.', ',');
     const lines = [
-      ['Splátka č.', 'Měsíc', 'Sazba (%)', 'Splátka (Kč)', 'Úrok (Kč)', 'Jistina (Kč)', 'Předčasná splátka (Kč)', 'Zůstatek (Kč)'].join(';'),
+      ['Splátka č.', 'Měsíc', 'Sazba (%)', 'Splátka (Kč)', 'Úrok (Kč)', 'Jistina (Kč)', 'Mimořádná splátka (Kč)', 'Použito na', 'Zůstatek (Kč)'].join(';'),
       ...sim.rows.map((r) =>
-        [r.month, fmtMonth(start, r.month), String(r.rate).replace('.', ','), num(r.payment), num(r.interest), num(r.principal), num(r.prepayment), num(r.balance)].join(';'),
+        [
+          r.month,
+          fmtMonth(start, r.month),
+          String(r.rate).replace('.', ','),
+          num(r.payment),
+          num(r.interest),
+          num(r.principal),
+          num(r.prepayment),
+          modeAt.has(r.month) ? MODE_LABEL[modeAt.get(r.month)] : '',
+          num(r.balance),
+        ].join(';'),
       ),
     ];
     const blob = new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
     const url = URL.createObjectURL(blob);
-    const names = { none: 'bez-predcasne-splatky', payment: 'snizeni-splatky', term: 'zkraceni-doby' };
+    const names = { none: 'bez-mimoradnych-splatek', plan: 'vas-plan', payment: 'vse-nizsi-splatka', term: 'vse-kratsi-doba' };
     const a = el('a', { href: url, download: `splatkovy-kalendar-${names[key]}.csv` });
     document.body.append(a);
     a.click();
@@ -554,35 +577,35 @@
   const cssVar = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 
   const CAPTIONS = {
-    balance: 'Zůstatek úvěru po každé splátce. Svislé linky označují konce fixací s předčasnou splátkou.',
-    payment: 'Řádná měsíční splátka (bez předčasných splátek). Po splacení úvěru je splátka nulová.',
+    balance: 'Zůstatek úvěru po každé splátce. Svislé linky označují konce fixací.',
+    payment: 'Řádná měsíční splátka (bez mimořádných splátek). Po splacení úvěru je splátka nulová.',
     interest: 'Kolik jste od začátku splácení zaplatili na úrocích.',
   };
 
-  function buildSeries(res, input, metric, horizon) {
-    return SCENARIOS.map((s) => {
-      const rows = res[s.key].rows;
-      const data = [];
-      let cum = 0;
-      if (metric !== 'payment') data.push({ x: 0, y: metric === 'balance' ? input.principal : 0 });
-      for (let k = 1; k <= horizon; k++) {
-        const row = rows[k - 1];
-        let y;
-        if (metric === 'balance') y = row ? row.balance : 0;
-        else if (metric === 'payment') y = row ? row.payment : 0;
-        else {
-          if (row) cum += row.interest;
-          y = cum;
-        }
-        data.push({ x: k, y });
+  const visibleScenarios = () => SCENARIOS.filter((s) => !s.ref || $('show-refs').checked);
+
+  function buildSeries(sim, principal, metric, horizon) {
+    const rows = sim.rows;
+    const data = [];
+    let cum = 0;
+    if (metric !== 'payment') data.push({ x: 0, y: metric === 'balance' ? principal : 0 });
+    for (let k = 1; k <= horizon; k++) {
+      const row = rows[k - 1];
+      let y;
+      if (metric === 'balance') y = row ? row.balance : 0;
+      else if (metric === 'payment') y = row ? row.payment : 0;
+      else {
+        if (row) cum += row.interest;
+        y = cum;
       }
-      return data;
-    });
+      data.push({ x: k, y });
+    }
+    return data;
   }
 
-  // Svislé linky v měsících předčasných splátek.
+  // Svislé linky na koncích fixací.
   const markersPlugin = {
-    id: 'prepayMarkers',
+    id: 'fixMarkers',
     beforeDatasetsDraw(c, args, opts) {
       const { ctx, chartArea, scales } = c;
       ctx.save();
@@ -626,7 +649,7 @@
     const ticks = [];
     // Index splátky, která připadne na leden roku Y.
     for (let y = start.y + 1; ; y++) {
-      if (y % step !== 0 && step > 1) continue;
+      if (step > 1 && y % step !== 0) continue;
       const k = (y - start.y) * 12 - (start.m - 1) + 1;
       if (k > horizon) break;
       ticks.push({ value: k, label: String(y) });
@@ -634,12 +657,16 @@
     return ticks;
   }
 
+  function renderLegend() {
+    $('legend').replaceChildren(...visibleScenarios().map((s) => el('li', null, keyEl(s.key), s.label)));
+  }
+
   function renderChart() {
     if (!state.last || typeof window.Chart === 'undefined') return;
     const { res, input, start } = state.last;
     const metric = state.metric;
-    const horizon = Math.max(res.none.months, res.payment.months, res.term.months);
-    const series = buildSeries(res, input, metric, horizon);
+    const scen = visibleScenarios();
+    const horizon = Math.max(...scen.map((s) => res[s.key].months));
 
     const colors = {
       ink: cssVar('--ink'),
@@ -651,11 +678,11 @@
       border: cssVar('--border-strong'),
     };
 
-    const datasets = SCENARIOS.map((s, i) => {
+    const datasets = scen.map((s, i) => {
       const color = cssVar(s.color);
       return {
         label: s.label,
-        data: series[i],
+        data: buildSeries(res[s.key], input.principal, metric, horizon),
         borderColor: color,
         backgroundColor: color,
         borderWidth: 2,
@@ -667,16 +694,13 @@
         pointHoverBackgroundColor: color,
         stepped: metric === 'payment',
         tension: 0,
-        // Šedou srovnávací variantu kreslíme pod barevné.
-        order: s.key === 'none' ? 3 : i === 1 ? 2 : 1,
+        // Váš plán kreslíme nahoru, srovnávací šedou dospod.
+        order: s.key === 'plan' ? 0 : s.key === 'none' ? 9 : i + 1,
       };
     });
 
-    const prepayMonths = res.periods.filter((p) => !p.isLast && p.prepayment > 0).map((p) => p.endMonth);
-    const prepayAt = (k) => {
-      const amounts = ['payment', 'term'].map((key) => (res[key].rows[k - 1] || {}).prepayment || 0);
-      return Math.max(...amounts);
-    };
+    const fixMonths = res.periods.filter((p) => !p.isLast).map((p) => p.endMonth);
+    const planExtraAt = new Map(appliedExtras(res.plan).map((x) => [x.month, x]));
 
     const width = $('chart').parentElement.clientWidth || 600;
     const ticks = yearTicks(start, horizon, width);
@@ -691,7 +715,7 @@
       layout: { padding: { top: 6, right: 8 } },
       plugins: {
         legend: { display: false },
-        prepayMarkers: { months: prepayMonths, color: colors.axis },
+        fixMarkers: { months: fixMonths, color: colors.axis },
         crosshair: { color: colors.muted },
         tooltip: {
           backgroundColor: colors.surface,
@@ -723,9 +747,8 @@
               return { borderColor: c, backgroundColor: c, borderWidth: 0, borderRadius: 1.5 };
             },
             footer(items) {
-              const k = items[0].parsed.x;
-              const amt = k > 0 ? prepayAt(k) : 0;
-              return amt > 0 ? `Konec fixace: předčasná splátka ${czk(amt)}` : '';
+              const x = planExtraAt.get(items[0].parsed.x);
+              return x ? `Váš plán: mimořádná splátka ${czk(x.applied)} → ${MODE_LABEL[x.mode]}` : '';
             },
           },
         },
@@ -755,7 +778,7 @@
             color: colors.muted,
             padding: 8,
             maxTicksLimit: 6,
-            callback: (v) => (v === 0 ? '0' : nfCompact.format(v) + '\u00a0Kč'),
+            callback: (v) => (v === 0 ? '0' : nfCompact.format(v) + ' Kč'),
           },
         },
       },
@@ -773,11 +796,8 @@
       chart.options = options;
       chart.update('none');
     }
+    renderLegend();
     $('chart-caption').textContent = CAPTIONS[metric];
-  }
-
-  function renderLegend() {
-    $('legend').replaceChildren(...SCENARIOS.map((s) => el('li', null, keyEl(s.key), s.label)));
   }
 
   // ---------- Adresa stránky ----------
@@ -788,12 +808,14 @@
       if (v != null && !Number.isNaN(v)) p.set(key, String(v));
     }
     p.set('start', $('start').value);
-    p.set('kdy', selectedRadio('when'));
-    const ov = Object.entries(state.overrides)
-      .filter(([, o]) => o.rate != null || o.prepayment != null)
-      .map(([i, o]) => `${i}:${o.rate != null ? o.rate : ''}:${o.prepayment != null ? o.prepayment : ''}`)
+    p.set('pouziti', MODE_URL[selectedRadio('extraMode')]);
+    p.set('zaklad', BASE_URL[$('limitBase').value]);
+    const rates = Object.entries(state.rateOverrides).map(([i, r]) => `${i}:${r}`).join(',');
+    if (rates) p.set('sazby', rates);
+    const plan = Object.entries(state.extraOverrides)
+      .map(([i, o]) => `${i}:${o.amount != null ? o.amount : ''}:${o.mode ? MODE_URL[o.mode] : ''}`)
       .join(',');
-    if (ov) p.set('upravy', ov);
+    if (plan) p.set('plan', plan);
     const hash = '#' + p.toString();
     if (location.hash !== hash) history.replaceState(null, '', hash);
   }
@@ -803,63 +825,80 @@
     if (!raw) return;
     const p = new URLSearchParams(raw);
     for (const [name, key] of Object.entries(URL_KEYS)) {
-      if (!p.has(key)) continue;
       const input = $(name);
+      if (!p.has(key)) {
+        // Volitelná pole, která v adrese chybí, mají zůstat prázdná.
+        if (OPTIONAL_FIELDS.includes(name)) input.value = '';
+        continue;
+      }
       const v = parseNum(p.get(key));
       input.value = v == null || Number.isNaN(v) ? '' : formatFieldValue(input, v);
     }
-    // Volitelná pole, která v adrese chybí, mají zůstat prázdná.
-    for (const name of ['firstFix', 'nextRate']) if (!p.has(URL_KEYS[name])) $(name).value = '';
     const start = p.get('start') && parseStart(p.get('start'));
     if (start) $('start').value = `${start.y}-${String(start.m).padStart(2, '0')}`;
-    const when = p.get('kdy');
-    const radio = when && form.querySelector(`input[name="when"][value="${when === 'first' ? 'first' : 'every'}"]`);
-    if (radio) radio.checked = true;
-    const ov = p.get('upravy');
-    if (ov) {
-      for (const part of ov.split(',')) {
-        const [i, rate, prep] = part.split(':');
-        const idx = parseInt(i, 10);
-        if (!(idx >= 0)) continue;
-        const o = {};
-        const r = parseNum(rate);
-        const pp = parseNum(prep);
-        if (r != null && !Number.isNaN(r) && r >= 0 && r <= 30) o.rate = r;
-        if (pp != null && !Number.isNaN(pp) && pp >= 0) o.prepayment = pp;
-        if (Object.keys(o).length) state.overrides[idx] = o;
-      }
+    const mode = p.get('pouziti') === MODE_URL.term ? 'term' : 'payment';
+    form.querySelector(`input[name="extraMode"][value="${mode}"]`).checked = true;
+    $('limitBase').value = p.get('zaklad') === BASE_URL.balance ? 'balance' : 'original';
+
+    for (const part of (p.get('sazby') || '').split(',')) {
+      const [i, rate] = part.split(':');
+      const idx = parseInt(i, 10);
+      const r = parseNum(rate);
+      if (idx >= 0 && r != null && !Number.isNaN(r) && r >= 0 && r <= 30) state.rateOverrides[idx] = r;
+    }
+    for (const part of (p.get('plan') || '').split(',')) {
+      const [i, amount, m] = part.split(':');
+      const idx = parseInt(i, 10);
+      if (!(idx >= 0)) continue;
+      const o = {};
+      const a = parseNum(amount);
+      if (a != null && !Number.isNaN(a) && a >= 0) o.amount = a;
+      if (m === MODE_URL.payment) o.mode = 'payment';
+      if (m === MODE_URL.term) o.mode = 'term';
+      if (Object.keys(o).length) state.extraOverrides[idx] = o;
     }
   }
 
   // ---------- Hlavní přepočet ----------
-  const form = $('form');
-  const results = $('results');
-
-  function update(rebuildEditor) {
+  function update(rebuild) {
     const { errors, input, start } = readInput();
     showErrors(errors);
     const ok = Object.keys(errors).length === 0;
     results.classList.toggle('is-stale', !ok);
     $('invalid-note').hidden = ok;
+    $('original-field').hidden = $('limitBase').value !== 'original';
     if (!ok) return;
 
     const res = calculate(input);
     state.last = { res, input, start };
-    if (rebuildEditor) renderEditor(res.periods, start);
+    if (rebuild) {
+      renderRatesEditor(res.periods, start);
+      renderPlanStructure(res.extras, start);
+    }
     $('firstFix').placeholder = nfDec.format(input.fixMonths / 12);
-    renderVerdict(res);
+    $('originalPrincipal').placeholder = nf0.format(input.principal);
+    updatePlanResults(res, start);
+    renderVerdict(res, start);
     renderCards(res, start);
     renderChart();
     renderSummary(res, start);
-    renderPeriodsTable(res, start);
     renderSchedule(res, start);
     writeUrl();
   }
 
   let timer = null;
-  function scheduleUpdate(rebuildEditor) {
+  function scheduleUpdate(rebuild) {
     clearTimeout(timer);
-    timer = setTimeout(() => update(rebuildEditor), 120);
+    timer = setTimeout(() => update(rebuild), 120);
+  }
+
+  /** Uloží ruční úpravu; hodnota shodná s výchozí (nebo prázdná) úpravu zruší. */
+  function setOverride(store, i, field, value, defaultValue) {
+    const o = store[i] || {};
+    if (value == null || value === defaultValue) delete o[field];
+    else o[field] = value;
+    if (Object.keys(o).length) store[i] = o;
+    else delete store[i];
   }
 
   function init() {
@@ -870,61 +909,82 @@
     $('start').placeholder = 'RRRR-MM';
 
     readUrl();
-    renderLegend();
-
-    const editorBody = $('periods-editor').tBodies[0];
 
     form.addEventListener('input', (e) => {
-      if (editorBody.contains(e.target)) return;
+      if (ratesBody.contains(e.target)) return;
       scheduleUpdate(true);
     });
     form.addEventListener('change', (e) => {
-      if (editorBody.contains(e.target)) return;
-      if (e.target.name === 'when') update(true);
+      if (ratesBody.contains(e.target)) return;
+      if (e.target.type === 'radio' || e.target.tagName === 'SELECT') update(true);
     });
     form.addEventListener('submit', (e) => e.preventDefault());
 
     // Po opuštění pole hezky naformátovat číslo (mezery mezi tisíci, desetinná čárka).
-    form.addEventListener('focusout', (e) => {
+    document.addEventListener('focusout', (e) => {
       const t = e.target;
-      if (!(t instanceof HTMLInputElement) || t.type !== 'text') return;
-      if (editorBody.contains(t)) {
-        if (t.getAttribute('aria-invalid') !== 'true') t.value = editorDisplayValue(t);
-        return;
-      }
-      if (t.id in FIELDS) {
+      if (!(t instanceof HTMLInputElement) || t.type !== 'text' || t.getAttribute('aria-invalid') === 'true') return;
+      if (planBody.contains(t)) {
+        t.value = planDisplayAmount(t);
+      } else if (ratesBody.contains(t)) {
+        const p = state.last && state.last.res.periods[+t.dataset.index];
+        if (p) t.value = nfDec.format(p.rate);
+      } else if (t.id in FIELDS) {
         const v = parseNum(t.value);
         if (v != null && !Number.isNaN(v)) t.value = formatFieldValue(t, v);
       }
     });
 
-    editorBody.addEventListener('input', (e) => {
+    // Sazby jednotlivých fixací
+    ratesBody.addEventListener('input', (e) => {
       const t = e.target;
-      if (!(t instanceof HTMLInputElement)) return;
       const i = +t.dataset.index;
-      const field = t.dataset.field;
       const v = parseNum(t.value);
-      const valid = v === null || (!Number.isNaN(v) && v >= 0 && (field !== 'rate' || v <= 30));
-      if (!valid) {
+      if (v !== null && (Number.isNaN(v) || v < 0 || v > 30)) {
         t.setAttribute('aria-invalid', 'true');
         return;
       }
       t.removeAttribute('aria-invalid');
-      const ov = state.overrides[i] || {};
-      if (v === null) delete ov[field];
-      else ov[field] = v;
-      if (Object.keys(ov).length) state.overrides[i] = ov;
-      else delete state.overrides[i];
+      if (v === null) delete state.rateOverrides[i];
+      else state.rateOverrides[i] = v;
       t.classList.toggle('is-custom', v !== null);
       scheduleUpdate(false);
     });
-
-    $('reset-overrides').addEventListener('click', () => {
-      state.overrides = {};
+    $('reset-rates').addEventListener('click', () => {
+      state.rateOverrides = {};
       update(true);
     });
+    if (Object.keys(state.rateOverrides).length) $('rates-details').open = true;
 
-    if (Object.keys(state.overrides).length) $('periods-details').open = true;
+    // Plán mimořádných splátek
+    planBody.addEventListener('input', (e) => {
+      const t = e.target;
+      if (!(t instanceof HTMLInputElement) || t.type !== 'text') return;
+      const i = +t.dataset.index;
+      const extra = state.last && state.last.res.extras[i];
+      const v = parseNum(t.value);
+      if (v !== null && (Number.isNaN(v) || v < 0)) {
+        t.setAttribute('aria-invalid', 'true');
+        return;
+      }
+      t.removeAttribute('aria-invalid');
+      setOverride(state.extraOverrides, i, 'amount', v, extra ? extra.defaultAmount : null);
+      t.classList.toggle('is-custom', !!(state.extraOverrides[i] && state.extraOverrides[i].amount != null));
+      scheduleUpdate(false);
+    });
+    planBody.addEventListener('change', (e) => {
+      const t = e.target;
+      if (!(t instanceof HTMLInputElement) || t.type !== 'radio') return;
+      const i = +t.dataset.index;
+      const extra = state.last && state.last.res.extras[i];
+      setOverride(state.extraOverrides, i, 'mode', t.value, extra ? extra.defaultMode : null);
+      t.closest('.segmented').classList.toggle('is-custom', !!(state.extraOverrides[i] && state.extraOverrides[i].mode));
+      update(false);
+    });
+    $('reset-plan').addEventListener('click', () => {
+      state.extraOverrides = {};
+      update(true);
+    });
 
     document.querySelectorAll('.tabs [role="tab"]').forEach((btn) => {
       btn.addEventListener('click', () => {
@@ -935,6 +995,7 @@
         renderChart();
       });
     });
+    $('show-refs').addEventListener('change', renderChart);
 
     document.querySelectorAll('input[name="scenario"], input[name="granularity"]').forEach((r) =>
       r.addEventListener('change', () => state.last && renderSchedule(state.last.res, state.last.start)),

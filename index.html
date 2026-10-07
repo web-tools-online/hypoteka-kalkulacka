@@ -3,19 +3,19 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Předčasná splátka hypotéky – kalkulačka</title>
-  <meta name="description" content="Kalkulačka vlivu předčasné splátky hypotéky na konci fixace: srovnání snížení měsíční splátky a zkrácení doby splácení v tabulce i grafu.">
+  <title>Mimořádné splátky hypotéky – kalkulačka</title>
+  <meta name="description" content="Kalkulačka vlivu mimořádných splátek hypotéky: jednou ročně až 25 % úvěru zdarma, u každé splátky volba mezi nižší měsíční splátkou a kratší dobou splácení. Výstup v tabulce i grafu.">
   <meta name="color-scheme" content="light dark">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M4 15 16 5l12 10v12a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1z' fill='%232a78d6'/%3E%3Cpath d='M13 28v-8h6v8' fill='%23fff'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
   <header class="page-header">
-    <h1>Předčasná splátka hypotéky</h1>
+    <h1>Mimořádné splátky hypotéky</h1>
     <p class="lead">
-      Na konci fixace můžete hypotéku zdarma mimořádně splatit. Kalkulačka ukáže, co to udělá,
-      když si po splátce <strong>snížíte měsíční splátku</strong>, nebo když
-      <strong>zkrátíte dobu splácení</strong> – a srovná obojí s variantou bez předčasné splátky.
+      Během fixace můžete jednou ročně k výročí splatit zdarma až čtvrtinu úvěru. Kalkulačka ukáže,
+      co vám to přinese – a u každé mimořádné splátky si zvolíte, jestli má <strong>snížit měsíční splátku</strong>,
+      nebo <strong>zkrátit dobu splácení</strong>.
     </p>
   </header>
 
@@ -32,7 +32,7 @@
           <div class="field-row">
             <div class="field">
               <label for="rate">Úroková sazba</label>
-              <div class="input-unit"><input id="rate" name="rate" type="text" inputmode="decimal" value="4,5" data-format="rate"><span>% p.&nbsp;a.</span></div>
+              <div class="input-unit"><input id="rate" name="rate" type="text" inputmode="decimal" value="4,5"><span>% p.&nbsp;a.</span></div>
               <small class="error" id="rate-error"></small>
             </div>
             <div class="field">
@@ -65,40 +65,61 @@
           <p class="hint">U nové hypotéky nechte „končí za“ prázdné. U běžící hypotéky zadejte zbývající jistinu, zbývající dobu splácení a za jak dlouho končí aktuální fixace (např. 2,5 roku).</p>
           <div class="field">
             <label for="nextRate">Odhad sazby pro další fixace <span class="optional">(nepovinné)</span></label>
-            <div class="input-unit"><input id="nextRate" name="nextRate" type="text" inputmode="decimal" placeholder="stejná" data-format="rate"><span>% p.&nbsp;a.</span></div>
+            <div class="input-unit"><input id="nextRate" name="nextRate" type="text" inputmode="decimal" placeholder="stejná"><span>% p.&nbsp;a.</span></div>
             <small class="error" id="nextRate-error"></small>
           </div>
+          <details id="rates-details" class="sub-details">
+            <summary>Sazby jednotlivých fixací</summary>
+            <div class="table-wrap">
+              <table id="rates-editor" class="editor-table">
+                <thead><tr><th scope="col">Fixace</th><th scope="col">Sazba&nbsp;%</th></tr></thead>
+                <tbody></tbody>
+              </table>
+            </div>
+            <button type="button" class="button-link" id="reset-rates">Obnovit výchozí sazby</button>
+          </details>
         </fieldset>
 
         <fieldset>
-          <legend>Předčasná splátka</legend>
-          <div class="field">
-            <label for="prepayment">Částka na konci fixace</label>
-            <div class="input-unit"><input id="prepayment" name="prepayment" type="text" inputmode="numeric" value="300 000" data-format="money"><span>Kč</span></div>
-            <small class="error" id="prepayment-error"></small>
-          </div>
-          <div class="field" role="radiogroup" aria-labelledby="when-label">
-            <span class="label" id="when-label">Kdy splácet</span>
-            <div class="segmented segmented-full">
-              <label><input type="radio" name="when" value="every" checked><span>Na konci každé fixace</span></label>
-              <label><input type="radio" name="when" value="first"><span>Jen na konci první</span></label>
+          <legend>Mimořádná splátka jednou ročně</legend>
+          <div class="field-row">
+            <div class="field">
+              <label for="extraAmount">Částka každý rok</label>
+              <div class="input-unit"><input id="extraAmount" name="extraAmount" type="text" inputmode="numeric" value="100 000" data-format="money"><span>Kč</span></div>
+              <small class="error" id="extraAmount-error"></small>
+            </div>
+            <div class="field">
+              <label for="extraYears">Kolik let</label>
+              <div class="input-unit"><input id="extraYears" name="extraYears" type="text" inputmode="numeric" placeholder="každý rok"><span>let</span></div>
+              <small class="error" id="extraYears-error"></small>
             </div>
           </div>
-        </fieldset>
-
-        <details id="periods-details" class="periods-editor">
-          <summary>Upravit jednotlivá fixační období</summary>
-          <p class="hint">Sazbu i předčasnou splátku můžete pro každou fixaci nastavit zvlášť. Upravené hodnoty jsou zvýrazněné; smazáním pole se vrátí výchozí hodnota.</p>
-          <div class="table-wrap">
-            <table id="periods-editor" class="editor-table">
-              <thead>
-                <tr><th scope="col">Fixace</th><th scope="col">Sazba&nbsp;%</th><th scope="col">Předčasná splátka na konci</th></tr>
-              </thead>
-              <tbody></tbody>
-            </table>
+          <div class="field" role="radiogroup" aria-labelledby="mode-label">
+            <span class="label" id="mode-label">Použít na</span>
+            <div class="segmented segmented-full">
+              <label><input type="radio" name="extraMode" value="payment" checked><span>Nižší měsíční splátku</span></label>
+              <label><input type="radio" name="extraMode" value="term"><span>Kratší dobu splácení</span></label>
+            </div>
           </div>
-          <button type="button" class="button-link" id="reset-overrides">Obnovit výchozí hodnoty</button>
-        </details>
+          <p class="hint">Platí pro všechny mimořádné splátky. U jednotlivých splátek to můžete změnit v plánu mimořádných splátek.</p>
+          <div class="field">
+            <label for="limitPct">Zdarma lze ročně splatit</label>
+            <div class="limit-row">
+              <div class="input-unit"><input id="limitPct" name="limitPct" type="text" inputmode="decimal" value="25"><span>%</span></div>
+              <select id="limitBase" name="limitBase" aria-label="Z čeho se limit počítá">
+                <option value="original" selected>z původní výše úvěru</option>
+                <option value="balance">z aktuálního zůstatku</option>
+              </select>
+            </div>
+            <small class="error" id="limitPct-error"></small>
+          </div>
+          <div class="field" id="original-field">
+            <label for="originalPrincipal">Původní výše úvěru <span class="optional">(u běžící hypotéky)</span></label>
+            <div class="input-unit"><input id="originalPrincipal" name="originalPrincipal" type="text" inputmode="numeric" placeholder="stejná jako výše" data-format="money"><span>Kč</span></div>
+            <small class="error" id="originalPrincipal-error"></small>
+          </div>
+          <p class="hint">Na konci fixace limit neplatí, splatit lze bez poplatku libovolnou částku. Částky nad limit kalkulačka sníží na limit.</p>
+        </fieldset>
 
         <div class="form-footer">
           <button type="button" class="button" id="copy-link">Zkopírovat odkaz na výpočet</button>
@@ -112,7 +133,31 @@
 
       <section class="verdict panel" id="verdict" aria-live="polite"></section>
 
-      <section class="cards" id="cards" aria-label="Výsledky podle varianty"></section>
+      <section class="cards" id="cards" aria-label="Hlavní výsledky"></section>
+
+      <section class="panel" aria-labelledby="plan-title">
+        <div class="panel-head">
+          <h2 id="plan-title">Plán mimořádných splátek</h2>
+          <button type="button" class="button" id="reset-plan">Obnovit výchozí hodnoty</button>
+        </div>
+        <p class="hint">U každého výročí můžete změnit částku i to, jestli splátka sníží měsíční splátku, nebo zkrátí dobu. Upravené hodnoty jsou zvýrazněné, smazáním částky se vrátí výchozí. Sloupce vpravo ukazují, jak se po splátce změní měsíční splátka a konec splácení.</p>
+        <div class="table-wrap table-scroll">
+          <table class="data-table plan-table" id="plan-table">
+            <thead>
+              <tr>
+                <th scope="col">Výročí</th>
+                <th scope="col">Limit zdarma</th>
+                <th scope="col">Mimořádná splátka</th>
+                <th scope="col">Použít na</th>
+                <th scope="col">Splaceno</th>
+                <th scope="col">Měsíční splátka poté</th>
+                <th scope="col">Konec splácení</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
 
       <section class="panel" aria-labelledby="chart-title">
         <div class="panel-head">
@@ -123,25 +168,21 @@
             <button type="button" role="tab" aria-selected="false" data-metric="interest">Zaplacené úroky</button>
           </div>
         </div>
-        <ul class="legend" id="legend"></ul>
+        <div class="legend-row">
+          <ul class="legend" id="legend"></ul>
+          <label class="check"><input type="checkbox" id="show-refs"> Porovnat, kdyby všechny splátky šly jen na nižší splátku / jen na kratší dobu</label>
+        </div>
         <div class="chart-box">
-          <canvas id="chart" role="img" aria-label="Graf srovnání variant splácení"></canvas>
+          <canvas id="chart" role="img" aria-label="Graf srovnání splácení s mimořádnými splátkami a bez nich"></canvas>
         </div>
         <p class="caption" id="chart-caption"></p>
       </section>
 
       <section class="panel" aria-labelledby="summary-title">
         <h2 id="summary-title">Souhrnné srovnání</h2>
+        <p class="hint">Poslední dva sloupce používají stejné částky jako váš plán, jen všechny na nižší splátku, nebo všechny na kratší dobu.</p>
         <div class="table-wrap">
           <table class="data-table" id="summary-table"></table>
-        </div>
-      </section>
-
-      <section class="panel" aria-labelledby="periods-title">
-        <h2 id="periods-title">Přehled podle fixací</h2>
-        <p class="hint">Měsíční splátka platná v daném fixačním období a zůstatek úvěru na jeho konci (po předčasné splátce).</p>
-        <div class="table-wrap">
-          <table class="data-table" id="periods-table"></table>
         </div>
       </section>
 
@@ -152,9 +193,10 @@
         </div>
         <div class="schedule-controls">
           <div class="segmented" role="radiogroup" aria-label="Varianta">
-            <label><input type="radio" name="scenario" value="none"><span>Bez předčasné splátky</span></label>
-            <label><input type="radio" name="scenario" value="payment" checked><span>Snížení splátky</span></label>
-            <label><input type="radio" name="scenario" value="term"><span>Zkrácení doby</span></label>
+            <label><input type="radio" name="scenario" value="none"><span>Bez mimořádných splátek</span></label>
+            <label><input type="radio" name="scenario" value="plan" checked><span>Váš plán</span></label>
+            <label><input type="radio" name="scenario" value="payment"><span>Vše na nižší splátku</span></label>
+            <label><input type="radio" name="scenario" value="term"><span>Vše na kratší dobu</span></label>
           </div>
           <div class="segmented" role="radiogroup" aria-label="Členění">
             <label><input type="radio" name="granularity" value="year" checked><span>Po letech</span></label>
@@ -170,10 +212,12 @@
         <h2 id="notes-title">Jak kalkulačka počítá</h2>
         <ul>
           <li>Anuitní splácení s měsíční splátkou; úrok za měsíc je zůstatek × roční sazba / 12.</li>
-          <li>Předčasná splátka proběhne v posledním měsíci fixace, hned po řádné splátce. Na konci fixace ji lze provést bez poplatku.</li>
-          <li><strong>Snížení splátky:</strong> po předčasné splátce se splátka přepočítá tak, aby úvěr skončil v původním termínu.</li>
-          <li><strong>Zkrácení doby:</strong> splátka zůstává stejná a úvěr skončí dřív. Když se v nové fixaci změní sazba, splátka se přepočítá tak, jak by se přepočítala bez předčasné splátky, a předčasná splátka pak zkrátí dobu splácení.</li>
-          <li>Když úvěr v některé variantě skončí dřív, pozdější předčasné splátky se v ní už neprovedou, a částka „předčasně splaceno celkem“ se proto mezi variantami může lišit.</li>
+          <li>Mimořádná splátka proběhne jednou ročně k výročí, hned po řádné splátce v daném měsíci. Výročí jdou po 12 měsících a jedno z nich připadá na konec fixace.</li>
+          <li>Bez poplatku jde splatit nejvýš nastavené procento (obvykle 25 %) z původní výše úvěru, nebo z aktuálního zůstatku – podle podmínek vaší banky. Na konci fixace limit neplatí.</li>
+          <li><strong>Nižší měsíční splátka:</strong> po mimořádné splátce se splátka přepočítá tak, aby úvěr skončil v dosavadním termínu.</li>
+          <li><strong>Kratší doba:</strong> měsíční splátka zůstane stejná a úvěr skončí dřív.</li>
+          <li>Na začátku každé fixace se splátka přepočítá podle nové sazby tak, aby úvěr skončil v termínu platném v tu chvíli.</li>
+          <li>Když úvěr skončí dřív, pozdější mimořádné splátky se už neprovedou, a částka „mimořádně splaceno celkem“ se proto mezi variantami může lišit.</li>
           <li>Banky obvykle zaokrouhlují splátku na celé koruny, výsledky se proto mohou o pár korun lišit. Výpočet nezahrnuje poplatky, pojištění ani daňový odpočet úroků. Výsledky jsou orientační.</li>
         </ul>
       </section>
