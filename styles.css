@@ -360,7 +360,7 @@ input.is-custom { background: var(--custom-wash); border-color: var(--custom-bor
 
 /* Plán mimořádných splátek */
 .plan-table td, .plan-table th { vertical-align: middle; }
-.plan-table th:nth-child(4), .plan-table td:nth-child(4) { text-align: left; }
+.plan-table th:nth-child(3), .plan-table td:nth-child(3) { text-align: left; }
 .plan-table .input-unit { min-width: 7em; }
 .plan-table th, .plan-table td { padding-left: 7px; padding-right: 7px; }
 .plan-table .input-unit input { min-height: 34px; padding: 5px 30px 5px 8px; text-align: right; }

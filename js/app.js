@@ -246,7 +246,6 @@
           el('th', { scope: 'row' }, `${e.index + 1}. výročí`,
             el('span', { class: 'period-dates' }, fmtMonth(start, e.month)),
             e.isFixEnd ? el('span', { class: 'badge' }, 'konec fixace') : null),
-          el('td', { 'data-cell': 'limit' }),
           el('td', null, el('div', { class: 'input-unit' }, amountInput, el('span', null, 'Kč'))),
           el('td', null,
             el('div', {
@@ -277,15 +276,12 @@
       const done = !x || x.balanceBefore <= 0;
       tr.classList.toggle('is-off', done);
       if (done) {
-        setCell(cell('limit'), '—', null, 'muted');
         setCell(cell('applied'), 'úvěr splacen', null, 'muted');
         setCell(cell('balance'), czk(0), null, 'muted');
         setCell(cell('payment'), '—', null, 'muted');
         setCell(cell('end'), '—', null, 'muted');
         continue;
       }
-      if (x.limit === Infinity) setCell(cell('limit'), 'bez limitu', null, 'muted');
-      else setCell(cell('limit'), czk(x.limit));
 
       if (x.applied <= 0) {
         if (x.capped) setCell(cell('applied'), czk(0), 'sníženo na limit', 'warn');
