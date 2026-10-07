@@ -1,0 +1,9 @@
+{
+  "name": "hypoteka-kalkulacka",
+  "private": true,
+  "description": "Kalkulačka vlivu předčasné splátky hypotéky na konci fixace",
+  "scripts": {
+    "test": "node --test tests/*.test.js",
+    "start": "python3 -m http.server 8000"
+  }
+}
