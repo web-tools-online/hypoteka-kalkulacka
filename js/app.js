@@ -255,6 +255,7 @@
               'aria-label': `Použití ${e.index + 1}. mimořádné splátky`,
             }, modeRadio('payment', 'nižší splátku'), modeRadio('term', 'kratší dobu'))),
           el('td', { 'data-cell': 'applied' }),
+          el('td', { 'data-cell': 'balance' }),
           el('td', { 'data-cell': 'payment' }),
           el('td', { 'data-cell': 'end' }),
         );
@@ -278,6 +279,7 @@
       if (done) {
         setCell(cell('limit'), '—', null, 'muted');
         setCell(cell('applied'), 'úvěr splacen', null, 'muted');
+        setCell(cell('balance'), czk(0), null, 'muted');
         setCell(cell('payment'), '—', null, 'muted');
         setCell(cell('end'), '—', null, 'muted');
         continue;
@@ -288,12 +290,14 @@
       if (x.applied <= 0) {
         if (x.capped) setCell(cell('applied'), czk(0), 'sníženo na limit', 'warn');
         else setCell(cell('applied'), '—', null, 'muted');
+        setCell(cell('balance'), czk(x.balanceAfter));
         setCell(cell('payment'), '—', null, 'muted');
         setCell(cell('end'), '—', null, 'muted');
         continue;
       }
       const note = x.paidOff ? 'doplaceno' : x.capped ? 'sníženo na limit' : null;
       setCell(cell('applied'), czk(x.applied), note, x.capped ? 'warn' : null);
+      setCell(cell('balance'), czk(x.balanceAfter), `před: ${czk(x.balanceBefore)}`);
       setCell(cell('payment'), x.paidOff ? '—' : czk(x.paymentAfter), null, x.paidOff ? 'muted' : null);
       setCell(cell('end'), fmtMonth(start, x.endMonthAfter));
     }
