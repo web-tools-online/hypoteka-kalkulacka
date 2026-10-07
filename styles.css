@@ -89,7 +89,7 @@ h2 { font-size: 1.15rem; font-weight: 650; }
   margin: 0 auto;
   padding: 16px;
   display: grid;
-  grid-template-columns: minmax(300px, 360px) minmax(0, 1fr);
+  grid-template-columns: minmax(300px, 336px) minmax(0, 1fr);
   gap: 20px;
   align-items: start;
 }
@@ -361,12 +361,13 @@ input.is-custom { background: var(--custom-wash); border-color: var(--custom-bor
 /* Plán mimořádných splátek */
 .plan-table td, .plan-table th { vertical-align: middle; }
 .plan-table th:nth-child(4), .plan-table td:nth-child(4) { text-align: left; }
-.plan-table .input-unit { min-width: 8.5em; }
+.plan-table .input-unit { min-width: 7em; }
+.plan-table th, .plan-table td { padding-left: 7px; padding-right: 7px; }
 .plan-table .input-unit input { min-height: 34px; padding: 5px 30px 5px 8px; text-align: right; }
 .plan-table .input-unit span { right: 8px; font-size: 0.8rem; }
 .plan-table tr.is-off > * { opacity: 0.55; }
 .segmented-mini { padding: 2px; gap: 2px; border-radius: 8px; flex-wrap: nowrap; }
-.segmented-mini span { padding: 4px 8px; font-size: 0.8rem; white-space: nowrap; border-radius: 6px; }
+.segmented-mini span { padding: 4px 6px; font-size: 0.8rem; white-space: nowrap; border-radius: 6px; }
 .segmented-mini.is-custom { box-shadow: 0 0 0 1px var(--custom-border); background: var(--custom-wash); }
 #summary-table tbody th { white-space: normal; min-width: 12em; }
 #summary-table thead th { min-width: 8em; }
