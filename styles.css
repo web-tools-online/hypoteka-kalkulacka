@@ -59,6 +59,7 @@
 }
 
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 
 html { -webkit-text-size-adjust: 100%; }
 
@@ -133,6 +134,8 @@ legend {
   margin-bottom: 4px;
 }
 .optional { font-weight: 400; color: var(--muted); }
+.field-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 8px; margin-bottom: 4px; }
+.field .field-head label[for] { margin-bottom: 0; }
 
 input[type="text"], input[type="month"] {
   width: 100%;
@@ -163,6 +166,8 @@ input[aria-invalid="true"] { border-color: var(--error); }
 
 .error { display: block; color: var(--error); font-size: 0.8rem; min-height: 0; }
 .error:empty { display: none; }
+.field-note { display: block; color: var(--muted); font-size: 0.8rem; margin-top: 2px; }
+.field-note:empty { display: none; }
 .hint { color: var(--ink-2); font-size: 0.85rem; margin: 0 0 12px; }
 
 .segmented {

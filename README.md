@@ -18,8 +18,9 @@ Výstupy:
 - splátkový kalendář po letech nebo po měsících s exportem do CSV.
 
 Dál jde nastavit sazbu pro každou fixaci, odhad sazby pro další fixace a limit zdarma
-(procento z původní výše úvěru, nebo z aktuálního zůstatku). U běžící hypotéky stačí zadat
-zbývající jistinu, zbývající dobu splácení, za jak dlouho končí aktuální fixace a původní
+(procento z původní výše úvěru, nebo z aktuálního zůstatku). Dobu splácení jde zadat v letech,
+nebo datem splacení (měsícem poslední splátky). U běžící hypotéky stačí zadat zbývající jistinu,
+zbývající dobu splácení (nebo datum splacení), za jak dlouho končí aktuální fixace a původní
 výši úvěru. Všechna zadání se ukládají do adresy stránky, takže výpočet jde sdílet odkazem.
 
 ## Zveřejnění na GitHub Pages
@@ -62,6 +63,7 @@ npm test
 ## Předpoklady výpočtu
 
 - Anuitní splácení s měsíční splátkou. Úrok za měsíc se počítá jako zůstatek × roční sazba / 12.
+- Při zadání data splacení běží doba splácení od první splátky do zadaného měsíce včetně.
 - Mimořádná splátka proběhne jednou ročně k výročí, hned po řádné splátce v daném měsíci.
   Výročí jdou po 12 měsících a jedno z nich připadá na konec fixace.
 - Limit zdarma je nastavené procento (výchozí 25 %) z původní výše úvěru, nebo z aktuálního
