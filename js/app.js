@@ -36,6 +36,10 @@
     return String(d.getMonth() + 1).padStart(2, '0') + '/' + d.getFullYear();
   }
   const fmtMonthLong = (start, k) => dfLong.format(monthDate(start, k));
+  // Hodnota pro <input type="month"> (RRRR-MM).
+  const monthValue = (y, m) => `${y}-${String(m).padStart(2, '0')}`;
+  // Počet splátek od první splátky `start` do měsíce `end` včetně.
+  const paymentsUntil = (start, end) => (end.y - start.y) * 12 + (end.m - start.m) + 1;
 
   // ---------- DOM pomocníci ----------
   const $ = (id) => document.getElementById(id);
@@ -108,6 +112,7 @@
     originalPrincipal: 'puvodni',
   };
   const OPTIONAL_FIELDS = ['firstFix', 'nextRate', 'extraYears', 'originalPrincipal'];
+  const TERM_END_URL = 'splaceni';
   const MODE_URL = { payment: 'splatka', term: 'doba' };
   const BASE_URL = { original: 'puvodni', balance: 'zustatek' };
 
@@ -141,10 +146,15 @@
     return checked ? checked.value : null;
   }
 
+  const termByDate = () => selectedRadio('termMode') === 'date';
+
   function readInput() {
     const errors = {};
     const v = {};
+    const byDate = termByDate();
     for (const [name, rule] of Object.entries(FIELDS)) {
+      // Při zadání data splacení se pole s dobou splácení nepoužije.
+      if (byDate && name === 'term') continue;
       const n = parseNum($(name).value);
       v[name] = n;
       if (n === null) {
@@ -154,15 +164,31 @@
       }
     }
 
-    const termMonths = Math.round((v.term || 0) * 12);
-    const fixMonths = Math.max(1, Math.round((v.fix || 0) * 12));
-    const firstFixMonths = v.firstFix == null ? fixMonths : Math.max(1, Math.round(v.firstFix * 12));
-    if (!errors.term && !errors.firstFix && v.firstFix != null && firstFixMonths > termMonths) {
-      errors.firstFix = 'Fixace nemůže končit až po konci splácení.';
-    }
-
     const start = parseStart($('start').value);
     if (!start || start.m < 1 || start.m > 12) errors.start = 'Zadejte měsíc a rok první splátky (např. 11/2026).';
+
+    // Počet splátek; null, když ho ze zadání nejde určit.
+    let termMonths = null;
+    if (byDate) {
+      const end = parseStart($('termEnd').value);
+      if (!end || end.m < 1 || end.m > 12) {
+        errors.termEnd = 'Zadejte měsíc a rok poslední splátky (např. 10/2056).';
+      } else if (!errors.start) {
+        termMonths = paymentsUntil(start, end);
+        if (termMonths < 12 || termMonths > 600) {
+          errors.termEnd = 'Poslední splátka musí být 1 až 50 let po první splátce.';
+          termMonths = null;
+        }
+      }
+    } else if (!errors.term) {
+      termMonths = Math.round(v.term * 12);
+    }
+
+    const fixMonths = Math.max(1, Math.round((v.fix || 0) * 12));
+    const firstFixMonths = v.firstFix == null ? fixMonths : Math.max(1, Math.round(v.firstFix * 12));
+    if (termMonths != null && !errors.firstFix && v.firstFix != null && firstFixMonths > termMonths) {
+      errors.firstFix = 'Fixace nemůže končit až po konci splácení.';
+    }
 
     return {
       errors,
@@ -187,7 +213,7 @@
   }
 
   function showErrors(errors) {
-    for (const name of [...Object.keys(FIELDS), 'start']) {
+    for (const name of [...Object.keys(FIELDS), 'start', 'termEnd']) {
       const input = $(name);
       const msg = errors[name] || '';
       $(`${name}-error`).textContent = msg;
@@ -199,6 +225,46 @@
         input.removeAttribute('aria-describedby');
       }
     }
+  }
+
+  // ---------- Doba splácení / datum splacení ----------
+  function applyTermMode() {
+    const byDate = termByDate();
+    $('term-years').hidden = byDate;
+    $('termEnd').hidden = !byDate;
+    const label = $('term-label');
+    label.htmlFor = byDate ? 'termEnd' : 'term';
+    label.textContent = byDate ? 'Datum splacení' : 'Doba splácení';
+  }
+
+  // Při přepnutí převede zadanou hodnotu, aby se výpočet nezměnil.
+  function switchTermMode() {
+    const start = parseStart($('start').value);
+    if (start) {
+      if (termByDate()) {
+        const years = parseNum($('term').value);
+        if (years > 0) {
+          const d = monthDate(start, Math.round(years * 12));
+          $('termEnd').value = monthValue(d.getFullYear(), d.getMonth() + 1);
+        }
+      } else {
+        const end = parseStart($('termEnd').value);
+        const months = end && paymentsUntil(start, end);
+        if (months > 0) $('term').value = formatFieldValue($('term'), months / 12);
+      }
+    }
+    applyTermMode();
+  }
+
+  // Pod polem ukáže, čemu zadání odpovídá: u doby datum poslední splátky, u data dobu splácení.
+  function renderTermNote(termMonths, start) {
+    let text = '';
+    if (termMonths != null && start) {
+      text = termByDate()
+        ? `doba splácení ${duration(termMonths)} (${termMonths} ${plural(termMonths, 'splátka', 'splátky', 'splátek')})`
+        : `poslední splátka ${fmtMonthLong(start, termMonths)}`;
+    }
+    $('term-note').textContent = text;
   }
 
   // ---------- Editor sazeb ----------
@@ -808,6 +874,10 @@
       if (v != null && !Number.isNaN(v)) p.set(key, String(v));
     }
     p.set('start', $('start').value);
+    if (termByDate()) {
+      p.delete(URL_KEYS.term);
+      p.set(TERM_END_URL, $('termEnd').value);
+    }
     p.set('pouziti', MODE_URL[selectedRadio('extraMode')]);
     p.set('zaklad', BASE_URL[$('limitBase').value]);
     const rates = Object.entries(state.rateOverrides).map(([i, r]) => `${i}:${r}`).join(',');
@@ -835,7 +905,12 @@
       input.value = v == null || Number.isNaN(v) ? '' : formatFieldValue(input, v);
     }
     const start = p.get('start') && parseStart(p.get('start'));
-    if (start) $('start').value = `${start.y}-${String(start.m).padStart(2, '0')}`;
+    if (start) $('start').value = monthValue(start.y, start.m);
+    const end = p.get(TERM_END_URL) && parseStart(p.get(TERM_END_URL));
+    if (end) {
+      $('termEnd').value = monthValue(end.y, end.m);
+      form.querySelector('input[name="termMode"][value="date"]').checked = true;
+    }
     const mode = p.get('pouziti') === MODE_URL.term ? 'term' : 'payment';
     form.querySelector(`input[name="extraMode"][value="${mode}"]`).checked = true;
     $('limitBase').value = p.get('zaklad') === BASE_URL.balance ? 'balance' : 'original';
@@ -863,6 +938,7 @@
   function update(rebuild) {
     const { errors, input, start } = readInput();
     showErrors(errors);
+    renderTermNote(input.termMonths, start);
     const ok = Object.keys(errors).length === 0;
     results.classList.toggle('is-stale', !ok);
     $('invalid-note').hidden = ok;
@@ -905,10 +981,14 @@
     // Výchozí první splátka: příští měsíc.
     const now = new Date();
     const next = new Date(now.getFullYear(), now.getMonth() + 1, 1);
-    $('start').value = `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, '0')}`;
+    $('start').value = monthValue(next.getFullYear(), next.getMonth() + 1);
     $('start').placeholder = 'RRRR-MM';
+    $('termEnd').placeholder = 'RRRR-MM';
 
     readUrl();
+    applyTermMode();
+    // Vlastní posluchač přepínače proběhne dřív než přepočet z posluchače formuláře.
+    form.querySelectorAll('input[name="termMode"]').forEach((r) => r.addEventListener('change', switchTermMode));
 
     form.addEventListener('input', (e) => {
       if (ratesBody.contains(e.target)) return;

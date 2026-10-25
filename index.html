@@ -29,22 +29,29 @@
             <div class="input-unit"><input id="principal" name="principal" type="text" inputmode="numeric" value="4 000 000" data-format="money"><span>Kč</span></div>
             <small class="error" id="principal-error"></small>
           </div>
-          <div class="field-row">
-            <div class="field">
-              <label for="rate">Úroková sazba</label>
-              <div class="input-unit"><input id="rate" name="rate" type="text" inputmode="decimal" value="4,5"><span>% p.&nbsp;a.</span></div>
-              <small class="error" id="rate-error"></small>
-            </div>
-            <div class="field">
-              <label for="term">Doba splácení</label>
-              <div class="input-unit"><input id="term" name="term" type="text" inputmode="decimal" value="30"><span>let</span></div>
-              <small class="error" id="term-error"></small>
-            </div>
+          <div class="field">
+            <label for="rate">Úroková sazba</label>
+            <div class="input-unit"><input id="rate" name="rate" type="text" inputmode="decimal" value="4,5"><span>% p.&nbsp;a.</span></div>
+            <small class="error" id="rate-error"></small>
           </div>
           <div class="field">
             <label for="start">První splátka</label>
             <input id="start" name="start" type="month">
             <small class="error" id="start-error"></small>
+          </div>
+          <div class="field">
+            <div class="field-head">
+              <label for="term" id="term-label">Doba splácení</label>
+              <div class="segmented segmented-mini" role="radiogroup" aria-label="Zadat konec splácení jako">
+                <label><input type="radio" name="termMode" value="years" checked><span>počet let</span></label>
+                <label><input type="radio" name="termMode" value="date"><span>datum</span></label>
+              </div>
+            </div>
+            <div class="input-unit" id="term-years"><input id="term" name="term" type="text" inputmode="decimal" value="30"><span>let</span></div>
+            <input id="termEnd" name="termEnd" type="month" hidden>
+            <small class="error" id="term-error"></small>
+            <small class="error" id="termEnd-error"></small>
+            <small class="field-note" id="term-note"></small>
           </div>
         </fieldset>
 
@@ -62,7 +69,7 @@
               <small class="error" id="firstFix-error"></small>
             </div>
           </div>
-          <p class="hint">U nové hypotéky nechte „končí za“ prázdné. U běžící hypotéky zadejte zbývající jistinu, zbývající dobu splácení a za jak dlouho končí aktuální fixace (např. 2,5 roku).</p>
+          <p class="hint">U nové hypotéky nechte „končí za“ prázdné. U běžící hypotéky zadejte zbývající jistinu, zbývající dobu splácení (nebo datum splacení) a za jak dlouho končí aktuální fixace (např. 2,5 roku).</p>
           <div class="field">
             <label for="nextRate">Odhad sazby pro další fixace <span class="optional">(nepovinné)</span></label>
             <div class="input-unit"><input id="nextRate" name="nextRate" type="text" inputmode="decimal" placeholder="stejná"><span>% p.&nbsp;a.</span></div>
@@ -212,6 +219,7 @@
         <h2 id="notes-title">Jak kalkulačka počítá</h2>
         <ul>
           <li>Anuitní splácení s měsíční splátkou; úrok za měsíc je zůstatek × roční sazba / 12.</li>
+          <li>Zadáte-li datum splacení, doba splácení běží od první splátky do zadaného měsíce včetně.</li>
           <li>Mimořádná splátka proběhne jednou ročně k výročí, hned po řádné splátce v daném měsíci. Výročí jdou po 12 měsících a jedno z nich připadá na konec fixace.</li>
           <li>Bez poplatku jde splatit nejvýš nastavené procento (obvykle 25 %) z původní výše úvěru, nebo z aktuálního zůstatku – podle podmínek vaší banky. Na konci fixace limit neplatí.</li>
           <li><strong>Nižší měsíční splátka:</strong> po mimořádné splátce se splátka přepočítá tak, aby úvěr skončil v dosavadním termínu.</li>
